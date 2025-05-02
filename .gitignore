@@ -176,3 +176,6 @@ cython_debug/
 
 # prompts
 /prompts
+
+# databases .db files
+*.db

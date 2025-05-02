@@ -1,0 +1,47 @@
+ScreenManager:
+    MenuScreen:
+        name: 'menu'
+    GameWithAIScreen:
+        name: 'game_with_ai'
+    ViewGamesScreen:
+        name: 'view_games'
+
+<MenuScreen>:
+    MDGridLayout:
+        cols: 1
+        size_hint_y: None
+        height: "200dp"
+        pos_hint: {"center_y": 0.5, "center_x": 0.5} 
+        padding: dp(10)
+        MDLabel:
+            text: "Welcome to the Game"
+            halign: "center"
+            font_style: "H5"
+        MDRectangleFlatButton:
+            text: "Start Game with AI"
+            size_hint: ('0.5', None)
+            on_release: app.root.current = "game_with_ai"
+        MDRectangleFlatButton:
+            text: "View Games"
+            size_hint: ('0.5', None)
+            on_release: 
+                app.root.current = "view_games"
+                app.view_games()
+
+
+<GameWithAIScreen>:
+    ScrollView:
+        MDGridLayout:
+            id: grid_layout
+            cols: 15
+            size_hint: ('1', None)
+            padding: dp(10)
+
+
+<ViewGamesScreen>:
+    ScrollView:
+        id: scroll_view
+        MDGridLayout:
+            id: layout
+            cols: 1
+            size_hint_y: None
