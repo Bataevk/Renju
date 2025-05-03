@@ -34,11 +34,12 @@ class Manager:
         return status
 
     def get_ai_move(self):
-        obs = self.game_engine._get_obs()
+        obs = self.game_engine._get_masked_obs()
         action, _states = self.model.predict(obs)
-        x = action % self.game_engine.size
-        y = action // self.game_engine.size
-        return x, y
+        coords = self.game_engine.get_coordinates(action)
+        if coords == "Ничья":
+            return None, None
+        return coords
 
     def run(self):
         self.gui.run()

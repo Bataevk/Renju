@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List, Tuple
+from icecream import ic
 
 # Определяем типы для лучшей читаемости
 Point = Tuple[int, int] # (x, y) coordinate
@@ -49,30 +50,93 @@ class GameEngine:
         if self.board[y, x] != 0:
             return False
         return True
+    
+    def get_valid_moves(self) -> List[Point]:
+        """
+        Возвращает список всех допустимых ходов для текущего игрока.
+        """
+        valid_moves = []
+        for y in range(self.size):
+            for x in range(self.size):
+                if self.is_valid_move(x, y):
+                    valid_moves.append((x, y))
+        return valid_moves
 
-    def make_move(self, x: int, y: int) -> MoveStatus:
-        if not self.is_valid_move(x, y):
-            return f"Недопустимый ход: {x}, {y}"
-        
-        # Специальные условия для первых ходов
-        if len(self.history) == 0: # Первый ход Черных
-            if (x, y) != self.center:
-                return "Первый ход Черных должен быть в центр"
-        elif len(self.history) == 1: # Второй ход Белых
+    def get_allowed_mask(self) -> Board:
+        """
+        Возвращает список всех допустимых ходов для текущего игрока с учетом правил.
+        """
+        mask = np.zeros((self.size, self.size))
+        for y in range(self.size):
+            for x in range(self.size):
+                if self.is_valid_move(x, y) and self._check_allowed_move(x, y):
+                    mask[y, x] = 1
+        return mask
+    
+    def get_allowed_moves(self) -> List[Point]:
+        """
+        Возвращает список всех допустимых ходов для текущего игрока с учетом правил.
+        """
+        allowed_moves = []
+        for y in range(self.size):
+            for x in range(self.size):
+                if self.is_valid_move(x, y) and self._check_allowed_move(x, y):
+                    allowed_moves.append((x, y))
+        return allowed_moves
+    
+    def get_coordinates(self, action:int) -> Point:
+        # Convert action to coordinates (x, y) and return None, None if invalid
+        valid_moves = self.get_allowed_moves()
+
+        if len(valid_moves) == 0:
+            return 'Ничья'
+
+        point: Point = (action % self.size, action // self.size)
+        if point in valid_moves:
+            # print(f"-----------------------------Допустимый ход: {point}------------------------------")
+            return point
+        # Если действие не является допустимым ходом, возвращаем None
+        # print(f"Недопустимый ход: {point}")
+        return (None, None)
+
+
+    
+    def _check_allowed_move(self, x: int, y: int) -> bool:
+        # Проверяем условия для первого и второго хода
+        if len(self.history) == 0 and (x, y) != self.center:
+            ic("Первый ход Черных должен быть в центр")
+            return False
+        elif len(self.history) == 1:
             if abs(x - self.center[0]) > 1 or abs(y - self.center[1]) > 1:
-                return "Второй ход Белых должен быть вплотную к первому камню Черных"
-        elif len(self.history) == 2: # Третий ход Черных
+                ic("Второй ход Белых должен быть вплотную к первому камню Черных")
+                return False
+        elif len(self.history) == 2:
             if abs(x - self.center[0]) > 2 or abs(y - self.center[1]) > 2:
-                return "Третий ход Черных должен быть в пределах центрального квадрата 5x5"
-        
-        # Запрещенные ходы для Черных
+                ic("Третий ход Черных должен быть в пределах центрального квадрата 5x5")
+                return False
+
+        # Проверяем условия для черных
         if self.current_player == -1:
             # Проверка на построение длинного ряда
             if self.is_long_row(x, y):
-                return "Черным запрещено строить длинные ряды"
+                ic("Черным запрещено строить длинные ряды")
+                return False
             # Проверка на вилки
             if self.is_forbidden_fork(x, y):
-                return "Черным запрещена вилка"
+                ic("Черным запрещена вилка")
+                return False
+
+        return True
+
+
+    def make_move(self, x: int, y: int) -> bool:
+        if not self.is_valid_move(x, y):
+            ic(f"Недопустимый ход: {x}, {y}")
+            return False
+        
+        if not self._check_allowed_move(x, y):
+            ic(f"Запрещенный ход: {x}, {y}")
+            return False
         
         # Сделать ход
         self.board[y, x] = self.current_player
@@ -80,12 +144,13 @@ class GameEngine:
         
         # Проверить победу
         if self.is_win(x, y):
-            return "Победа" + (" Черных" if self.current_player == -1 else " Белых")
+            ic("Победа" + (" Черных" if self.current_player == -1 else " Белых"))
+            return True
         
         # Сменить игрока
         self.current_player *= -1
         
-        return "Ход сделан"
+        return True
 
     def is_long_row(self, x: int, y: int) -> bool:
         for direction in self.DIRECTIONS:
