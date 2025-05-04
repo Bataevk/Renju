@@ -53,36 +53,65 @@ class GameEngine:
     
     def get_valid_moves(self) -> List[Point]:
         """
-        Возвращает список всех допустимых ходов для текущего игрока.
+        Возвращает список всех допустимых ходов для текущего игрока (только пустые клетки).
         """
-        valid_moves = []
-        for y in range(self.size):
-            for x in range(self.size):
-                if self.is_valid_move(x, y):
-                    valid_moves.append((x, y))
-        return valid_moves
+        empty = np.argwhere(self.board == 0)
+        # Возвращаем список (x, y), чтобы соответствовать вашему формату
+        return [(x, y) for y, x in empty]
 
+    
     def get_allowed_mask(self) -> Board:
         """
-        Возвращает список всех допустимых ходов для текущего игрока с учетом правил.
+        Возвращает маску допустимых ходов для текущего игрока с учетом правил.
         """
-        mask = np.zeros((self.size, self.size))
-        for y in range(self.size):
-            for x in range(self.size):
-                if self.is_valid_move(x, y) and self._check_allowed_move(x, y):
-                    mask[y, x] = 1
+        mask = np.zeros((self.size, self.size), dtype=np.int32)
+        empty = np.argwhere(self.board == 0)
+        for y, x in empty:
+            if self._check_allowed_move(x, y):
+                mask[y, x] = 1
         return mask
-    
+
     def get_allowed_moves(self) -> List[Point]:
-        """
-        Возвращает список всех допустимых ходов для текущего игрока с учетом правил.
-        """
-        allowed_moves = []
-        for y in range(self.size):
-            for x in range(self.size):
-                if self.is_valid_move(x, y) and self._check_allowed_move(x, y):
-                    allowed_moves.append((x, y))
+        # 1. Быстро находим все пустые клетки
+        empty = np.argwhere(self.board == 0)                
+        # 2. Применяем сложные проверки только к ним
+        allowed_moves = [
+            (x, y) for y, x in empty
+            if self._check_allowed_move(x, y)
+        ]
         return allowed_moves
+
+    # def get_valid_moves(self) -> List[Point]:
+    #     """
+    #     Возвращает список всех допустимых ходов для текущего игрока.
+    #     """
+    #     valid_moves = []
+    #     for y in range(self.size):
+    #         for x in range(self.size):
+    #             if self.is_valid_move(x, y):
+    #                 valid_moves.append((x, y))
+    #     return valid_moves
+    # def get_allowed_mask(self) -> Board:
+    #     """
+    #     Возвращает список всех допустимых ходов для текущего игрока с учетом правил.
+    #     """
+    #     mask = np.zeros((self.size, self.size))
+    #     for y in range(self.size):
+    #         for x in range(self.size):
+    #             if self.is_valid_move(x, y) and self._check_allowed_move(x, y):
+    #                 mask[y, x] = 1
+    #     return mask
+    
+    # def get_allowed_moves(self) -> List[Point]:
+    #     """
+    #     Возвращает список всех допустимых ходов для текущего игрока с учетом правил.
+    #     """
+    #     allowed_moves = []
+    #     for y in range(self.size):
+    #         for x in range(self.size):
+    #             if self.is_valid_move(x, y) and self._check_allowed_move(x, y):
+    #                 allowed_moves.append((x, y))
+    #     return allowed_moves
     
     def get_coordinates(self, action:int) -> Point:
         # Convert action to coordinates (x, y) and return None, None if invalid
