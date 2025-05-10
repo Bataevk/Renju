@@ -37,11 +37,12 @@ class CustomCNN(BaseFeaturesExtractor):
         
         # Вход: (3, 15, 15)
         self.cnn = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),  # (16, 15, 15)
+            nn.Conv2d(3, 15, kernel_size=3, padding=1),  # (16, 15, 15)
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1), # (32, 15, 15)
+            nn.Conv2d(15, 15, kernel_size=3, padding=1), # (32, 15, 15)
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1), # (64, 15, 15)
+            nn.Conv2d(15, 15, kernel_size=3, padding=1), # (64, 15, 15)
+            # nn.RNN(15, 3, 1),
             nn.ReLU(),
             nn.Flatten()
         )
@@ -72,10 +73,10 @@ class RenjuEnv(gym.Env):
         )
         self.render_mode = render_mode
 
-    # def reset(self, seed=None, options=None):
-    #     super().reset(seed=seed)
-    #     self.game = GameEngine()
-    #     return self._get_masked_obs(), {}
+    def game_reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.game = GameEngine()
+        return self._get_masked_obs(), {}
 
     def reset(self, seed=None, options=None):
         def append_move(x, y, player):
@@ -106,9 +107,6 @@ class RenjuEnv(gym.Env):
         append_move(x2, y2, 1)
 
         # 3. Третий ход: черный (-1) в любую свободную клетку 5x5 вокруг центра (кроме занятых)
-        x3 = np.random.randint(center - 2, center + 3)
-        
-        # y3:
         board_5_5 = board[center - 2:center + 3, center - 2:center + 3]
         # Получаем индексы свободных клеток
         free_indices = np.argwhere(board_5_5 == 0)
@@ -178,7 +176,7 @@ class RenjuEnv(gym.Env):
 
         coords = self.game.get_coordinates(action)
         if coords == 'Ничья':
-            return self._get_masked_obs(), draw_reward, False, True, {}
+            return self._get_masked_obs(), draw_reward, True, False, {}
         
         x, y = coords
 
@@ -202,7 +200,7 @@ class RenjuEnv(gym.Env):
                 allowed_moves = self.game.get_allowed_moves()
                 if len(allowed_moves) == 0:
                     reward = draw_reward
-                    truncated = True
+                    terminated = True
                 else:
                     for move in allowed_moves:
                         if self.game.is_win(move[0], move[1]):
@@ -216,6 +214,7 @@ class RenjuEnv(gym.Env):
             reward = illegal_move_penalty
             truncated = True 
 
+        self.game.current_player = -self.game.current_player
         return obs, reward, terminated, truncated, {}
 
     def render(self):
@@ -243,7 +242,7 @@ if __name__ == "__main__":
     )
 
 
-    model.learn(total_timesteps=2_000_000)
+    model.learn(total_timesteps=4_000_000)
 
     obs, _ = env.reset()
     for _ in range(100):
