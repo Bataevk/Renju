@@ -242,7 +242,7 @@ if __name__ == "__main__":
     )
 
 
-    model.learn(total_timesteps=4_000_000)
+    model.learn(total_timesteps=5_000_000)
 
     obs, _ = env.reset()
     for _ in range(100):
