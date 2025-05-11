@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Рендзю с AI (Flask)</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #f0f0f0;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start; 
+            min-height: 100vh;
+            padding-top: 20px; 
+            overflow: hidden;
+        }
+        #controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        #controls label {
+            font-weight: bold;
+        }
+        #controls select, #controls button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+            font-size: 1em;
+        }
+        #controls button {
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #controls button:hover {
+            background-color: #0056b3;
+        }
+        #info-panel {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            text-align: center;
+            width: 80vw;
+            max-width: 700px;
+        }
+        #current-player-label {
+            font-weight: normal;
+        }
+        #current-player {
+            font-weight: bold;
+        }
+        .status-message {
+            margin-top: 10px;
+            font-style: italic;
+            color: #555;
+            min-height: 1.2em; 
+        }
+        #game-container {
+            width: 80vw;
+            max-width: 700px;
+            height: 65vh; 
+            max-height: 550px;
+            border: 1px solid #ccc;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            position: relative;
+            background-color: #fff;
+        }
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+        .message-box {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #ffdddd;
+            border: 1px solid #ffaaaa;
+            color: #d8000c;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+            display: none;
+            font-size: 1em;
+            text-align: center;
+        }
+        .message-box.success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <label for="player-color-select">Играть за:</label>
+        <select id="player-color-select">
+            <option value="black">Черные (X)</option>
+            <option value="white">Белые (O)</option>
+        </select>
+        <button id="new-game-button">Новая Игра</button>
+    </div>
+
+    <div id="info-panel">
+        <span id="current-player-label">Ход игрока:</span> <span id="current-player">Черные</span>
+        <div id="status-message" class="status-message">Начните новую игру.</div>
+    </div>
+
+    <div id="game-container">
+        </div>
+
+    <div id="message-box" class="message-box"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- Глобальные переменные и константы ---
+        const BOARD_SIZE = 15; // Должно соответствовать серверу
+        const CELL_SIZE = 2;
+        const STONE_RADIUS = CELL_SIZE * 0.4;
+        const STONE_HEIGHT = CELL_SIZE * 0.2;
+        const BOARD_THICKNESS = 0.5;
+        // ОБНОВЛЕНО: IP-адрес сервера
+        const API_BASE_URL = 'http://10.33.0.2:5000'; 
+
+        let scene, camera, renderer, orbitControls;
+        let boardMesh; // 3D объект доски
+        let visualStones = []; // Массив для 3D объектов камней
+        let boardState = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null)); // Логическое состояние доски на клиенте
+        
+        let currentPlayerString = 'black'; // 'black' or 'white', получается с сервера
+        let humanPlayerColor = 'black'; // Выбор пользователя
+        let gameOver = false;
+        let boardClicksEnabled = true;
+
+        // --- DOM Элементы ---
+        const gameContainer = document.getElementById('game-container');
+        const currentPlayerLabelSpan = document.getElementById('current-player-label');
+        const currentPlayerSpan = document.getElementById('current-player');
+        const statusMessageDiv = document.getElementById('status-message');
+        const messageBox = document.getElementById('message-box');
+        const newGameButton = document.getElementById('new-game-button');
+        const playerColorSelect = document.getElementById('player-color-select');
+
+        // --- Инициализация Three.js ---
+        function initThreeJS() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xeeeeee);
+
+            const aspect = gameContainer.clientWidth / gameContainer.clientHeight;
+            camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000);
+            camera.position.set(0, BOARD_SIZE * CELL_SIZE * 0.7, BOARD_SIZE * CELL_SIZE * 0.8);
+            camera.lookAt(0, 0, 0);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(gameContainer.clientWidth, gameContainer.clientHeight);
+            renderer.shadowMap.enabled = true;
+            gameContainer.innerHTML = ''; 
+            gameContainer.appendChild(renderer.domElement);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.7);
+            directionalLight.position.set(15, 25, 20);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 1024;
+            directionalLight.shadow.mapSize.height = 1024;
+            directionalLight.shadow.camera.near = 0.5;
+            directionalLight.shadow.camera.far = 80;
+            const shadowCamSize = BOARD_SIZE * CELL_SIZE;
+            directionalLight.shadow.camera.left = -shadowCamSize;
+            directionalLight.shadow.camera.right = shadowCamSize;
+            directionalLight.shadow.camera.top = shadowCamSize;
+            directionalLight.shadow.camera.bottom = -shadowCamSize;
+            scene.add(directionalLight);
+            
+            createBoardVisuals(); 
+
+            orbitControls = new THREE.OrbitControls(camera, renderer.domElement);
+            orbitControls.enableDamping = true;
+            orbitControls.dampingFactor = 0.05;
+            orbitControls.screenSpacePanning = false;
+            orbitControls.maxPolarAngle = Math.PI / 2 - 0.05;
+            orbitControls.target.set(0, 0, 0);
+
+            window.addEventListener('resize', onWindowResize, false);
+            gameContainer.addEventListener('click', onBoardClick, false); 
+            
+            animate(); 
+        }
+        
+        // --- Игровая Логика (взаимодействие с сервером) ---
+        async function startNewGame() {
+            gameOver = false;
+            boardClicksEnabled = false; 
+            statusMessageDiv.textContent = "Загрузка новой игры...";
+
+            humanPlayerColor = playerColorSelect.value;
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/new_game`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ human_plays_as: humanPlayerColor })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({error: "Ошибка сервера"}));
+                    throw new Error(errorData.error || `Ошибка сети: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log("New game data from server:", data);
+
+                updateBoardFromState(data.board); 
+                currentPlayerString = data.currentPlayer;
+                gameOver = data.game_over;
+                
+                updateInfoPanel();
+                
+                if (gameOver) {
+                    handleGameOver(data.winner);
+                } else {
+                    boardClicksEnabled = true; 
+                    if (currentPlayerString !== humanPlayerColor) {
+                        statusMessageDiv.textContent = `Агент (${currentPlayerString === 'black' ? 'Черные' : 'Белые'}) думает...`;
+                    } else {
+                         statusMessageDiv.textContent = `Ваш ход (${humanPlayerColor === 'black' ? 'Черные' : 'Белые'}).`;
+                    }
+                }
+
+            } catch (error) {
+                console.error("Ошибка при старте новой игры:", error);
+                showTemporaryMessage(`Ошибка: ${error.message}`, 5000);
+                statusMessageDiv.textContent = "Не удалось начать игру. Попробуйте снова.";
+                boardClicksEnabled = true; 
+            }
+        }
+
+        async function handleHumanMove(row, col) {
+            if (gameOver || !boardClicksEnabled || currentPlayerString !== humanPlayerColor) {
+                if (!gameOver && currentPlayerString !== humanPlayerColor && boardClicksEnabled) {
+                    showTemporaryMessage("Сейчас не ваш ход.");
+                }
+                return;
+            }
+
+            boardClicksEnabled = false; 
+            statusMessageDiv.textContent = "Обработка вашего хода...";
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/make_move`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ row: row, col: col }) 
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({error: "Ошибка сервера при выполнении хода"}));
+                    if (response.status === 400 && errorData.error) {
+                         showTemporaryMessage(`Неверный ход: ${errorData.error}`, 3000);
+                         statusMessageDiv.textContent = `Неверный ход. Ваш ход (${humanPlayerColor === 'black' ? 'Черные' : 'Белые'}).`;
+                    } else {
+                        throw new Error(errorData.error || `Ошибка сети: ${response.status}`);
+                    }
+                    boardClicksEnabled = true; 
+                    updateInfoPanel(); 
+                    return; 
+                }
+                
+                const data = await response.json();
+                console.log("Move response from server:", data);
+
+                updateBoardFromState(data.board);
+                currentPlayerString = data.currentPlayer;
+                gameOver = data.game_over;
+
+                updateInfoPanel();
+
+                if (gameOver) {
+                    handleGameOver(data.winner);
+                } else {
+                    if (currentPlayerString === humanPlayerColor) {
+                        boardClicksEnabled = true;
+                        statusMessageDiv.textContent = `Ваш ход (${humanPlayerColor === 'black' ? 'Черные' : 'Белые'}).`;
+                    } else {
+                        statusMessageDiv.textContent = `Ожидание хода Агента (${currentPlayerString === 'black' ? 'Черные' : 'Белые'})...`;
+                    }
+                }
+
+            } catch (error) {
+                console.error("Ошибка при выполнении хода:", error);
+                showTemporaryMessage(`Ошибка хода: ${error.message}`, 5000);
+                statusMessageDiv.textContent = "Ошибка. Попробуйте снова.";
+                boardClicksEnabled = true; 
+                updateInfoPanel();
+            }
+        }
+        
+        function handleGameOver(winnerString) {
+            boardClicksEnabled = false;
+            let message = "";
+            if (winnerString === "draw") {
+                message = "Ничья!";
+            } else if (winnerString) {
+                message = `Игрок <b>${winnerString === 'black' ? 'Черные' : 'Белые'}</b> победил!`;
+            } else {
+                message = "Игра окончена!"; 
+            }
+            statusMessageDiv.innerHTML = `${message} <br> Начните новую игру.`;
+            showTemporaryMessage(message.replace(/<b>|<\/b>/g, ""), 5000, true);
+        }
+
+
+        // --- Визуализация (Three.js) ---
+        function createBoardVisuals() {
+            if (boardMesh) scene.remove(boardMesh);
+            // Удаление старых линий (если необходимо и они хранятся отдельно)
+            // linesArray.forEach(line => scene.remove(line)); linesArray = [];
+
+            const boardDimension = BOARD_SIZE * CELL_SIZE;
+            const halfBoardDimension = boardDimension / 2 - CELL_SIZE / 2;
+
+            const boardGeometry = new THREE.BoxGeometry(boardDimension, BOARD_THICKNESS, boardDimension);
+            const boardMaterial = new THREE.MeshStandardMaterial({
+                color: 0xdeb887, 
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            boardMesh = new THREE.Mesh(boardGeometry, boardMaterial);
+            boardMesh.position.y = -BOARD_THICKNESS / 2;
+            boardMesh.receiveShadow = true;
+            scene.add(boardMesh);
+
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
+            for (let i = 0; i <= BOARD_SIZE; i++) {
+                let points = [];
+                points.push(new THREE.Vector3(i * CELL_SIZE - halfBoardDimension - CELL_SIZE/2, 0.01, -halfBoardDimension - CELL_SIZE/2));
+                points.push(new THREE.Vector3(i * CELL_SIZE - halfBoardDimension - CELL_SIZE/2, 0.01, halfBoardDimension + CELL_SIZE/2));
+                let geometry = new THREE.BufferGeometry().setFromPoints(points);
+                let line = new THREE.Line(geometry, lineMaterial);
+                scene.add(line); 
+
+                points = [];
+                points.push(new THREE.Vector3(-halfBoardDimension - CELL_SIZE/2, 0.01, i * CELL_SIZE - halfBoardDimension - CELL_SIZE/2));
+                points.push(new THREE.Vector3(halfBoardDimension + CELL_SIZE/2, 0.01, i * CELL_SIZE - halfBoardDimension - CELL_SIZE/2));
+                geometry = new THREE.BufferGeometry().setFromPoints(points);
+                line = new THREE.Line(geometry, lineMaterial);
+                scene.add(line); 
+            }
+            
+            const starPointMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const starPointSize = CELL_SIZE * 0.1;
+            const starPointGeometry = new THREE.CircleGeometry(starPointSize, 16);
+            const starPointsCoords = [
+                {r: 3, c: 3}, {r: 3, c: 11}, {r: 11, c: 3}, {r: 11, c: 11}, {r: 7, c: 7}
+            ];
+             starPointsCoords.forEach(coord => {
+                if (coord.r < BOARD_SIZE && coord.c < BOARD_SIZE) {
+                    const starPoint = new THREE.Mesh(starPointGeometry, starPointMaterial.clone());
+                    starPoint.position.set(
+                        coord.c * CELL_SIZE - halfBoardDimension, 0.015, coord.r * CELL_SIZE - halfBoardDimension
+                    );
+                    starPoint.rotation.x = -Math.PI / 2;
+                    scene.add(starPoint);
+                }
+            });
+        }
+        
+        function placeVisualStone(row, col, playerString) { 
+            if (playerString !== 'black' && playerString !== 'white') return; 
+
+            const stoneGeometry = new THREE.CylinderGeometry(STONE_RADIUS, STONE_RADIUS, STONE_HEIGHT, 32);
+            const stoneMaterial = new THREE.MeshStandardMaterial({
+                color: (playerString === 'black') ? 0x1a1a1a : 0xf0f0f0,
+                roughness: 0.4,
+                metalness: 0.1
+            });
+            const stone = new THREE.Mesh(stoneGeometry, stoneMaterial);
+            const halfBoardDimension = BOARD_SIZE * CELL_SIZE / 2 - CELL_SIZE / 2;
+            stone.position.set(
+                col * CELL_SIZE - halfBoardDimension,
+                STONE_HEIGHT / 2 + 0.01,
+                row * CELL_SIZE - halfBoardDimension
+            );
+            stone.castShadow = true;
+            scene.add(stone);
+            visualStones.push(stone); 
+        }
+
+        function updateBoardFromState(serverBoardState) {
+            visualStones.forEach(stone => scene.remove(stone));
+            visualStones = [];
+
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const serverPlayerValue = serverBoardState[r][c]; 
+                    let playerString = null;
+                    if (serverPlayerValue === -1) playerString = 'black';
+                    else if (serverPlayerValue === 1) playerString = 'white';
+                    
+                    boardState[r][c] = playerString; 
+
+                    if (playerString) {
+                        placeVisualStone(r, c, playerString);
+                    }
+                }
+            }
+        }
+
+        function onBoardClick(event) {
+            if (gameOver || !boardClicksEnabled || currentPlayerString !== humanPlayerColor) {
+                 if (!gameOver && currentPlayerString !== humanPlayerColor && boardClicksEnabled) {
+                    showTemporaryMessage("Сейчас не ваш ход.");
+                } else if (gameOver) {
+                    showTemporaryMessage("Игра окончена. Начните новую игру.");
+                }
+                return;
+            }
+
+            const rect = renderer.domElement.getBoundingClientRect();
+            const mouse = new THREE.Vector2();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(boardMesh); 
+
+            if (intersects.length > 0) {
+                const intersectPoint = intersects[0].point;
+                const halfTotalSize = BOARD_SIZE * CELL_SIZE / 2;
+                const col = Math.floor((intersectPoint.x + halfTotalSize) / CELL_SIZE);
+                const row = Math.floor((intersectPoint.z + halfTotalSize) / CELL_SIZE);
+
+                if (row >= 0 && row < BOARD_SIZE && col >= 0 && col < BOARD_SIZE) {
+                    if (!boardState[row][col]) { 
+                        handleHumanMove(row, col); 
+                    } else {
+                        showTemporaryMessage("Эта ячейка уже занята.");
+                    }
+                } else {
+                    showTemporaryMessage("Клик за пределами доски.");
+                }
+            }
+        }
+        
+        function updateInfoPanel() {
+            if (gameOver) return; 
+            
+            const currentPlayerText = (currentPlayerString === 'black') ? 'Черные' : 'Белые';
+            currentPlayerSpan.textContent = currentPlayerText;
+
+            if (currentPlayerString === humanPlayerColor) {
+                currentPlayerLabelSpan.textContent = "Ваш ход:";
+                statusMessageDiv.textContent = `Выберите ячейку для хода.`;
+            } else {
+                currentPlayerLabelSpan.textContent = "Ход Агента:";
+                statusMessageDiv.textContent = `Агент (${currentPlayerText}) думает...`;
+            }
+        }
+        
+        function showTemporaryMessage(message, duration = 3000, isSuccess = false) {
+            messageBox.textContent = message;
+            messageBox.className = 'message-box'; 
+            if (isSuccess) {
+                messageBox.classList.add('success');
+            }
+            messageBox.style.display = 'block';
+            setTimeout(() => {
+                messageBox.style.display = 'none';
+            }, duration);
+        }
+
+        function onWindowResize() {
+            if (!camera || !renderer) return;
+            const newWidth = gameContainer.clientWidth;
+            const newHeight = gameContainer.clientHeight;
+            camera.aspect = newWidth / newHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(newWidth, newHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (orbitControls) orbitControls.update();
+            if (renderer && scene && camera) renderer.render(scene, camera);
+        }
+
+        // --- Запуск ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initThreeJS(); 
+            newGameButton.addEventListener('click', startNewGame);
+            playerColorSelect.addEventListener('change', () => {
+                humanPlayerColor = playerColorSelect.value;
+            });
+            startNewGame(); 
+        });
+    </script>
+</body>
+</html>
